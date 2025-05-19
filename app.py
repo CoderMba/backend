@@ -5,38 +5,38 @@ import json
 from datetime import datetime
 
 app = Flask(__name__)
-CORS(app)  # enable CORS for all routes
+CORS(app)
 
-@app.route("/")
-def home():
-    return "Backend is running!"
-
+def get_real_ip():
+    forwarded = request.headers.get("X-Forwarded-For", "")
+    if forwarded:
+        # take the first public IP from the list
+        ip = forwarded.split(",")[0].strip()
+    else:
+        ip = request.remote_addr
+    return ip
 
 def get_geolocation(ip):
     try:
-        response = requests.get(f"https://ipinfo.io/{ip}/json")
-        if response.status_code == 200:
-            return response.json()
-    except:
-        return {}
+        resp = requests.get(f"https://ipinfo.io/{ip}/json", timeout=3)
+        if resp.status_code == 200:
+            return resp.json()
+    except Exception as e:
+        print(f"Geo error: {e}")
     return {}
 
 @app.route("/log", methods=["POST"])
 def log():
-    data = request.json
-    if not data:
-        return {"error": "No data"}, 400
+    try:
+        data = request.get_json()
+        event = data.get('event')
+        event_data = data.get('data')
+    except Exception as e:
+        print(f"Invalid JSON: {e}")
+        return {"error": "Invalid JSON"}, 400
 
-    event = data.get('event')
-    event_data = data.get('data')
     timestamp = data.get('timestamp') or datetime.utcnow().isoformat()
-
-    # Get IP (from X-Forwarded-For)
-    if request.headers.getlist("X-Forwarded-For"):
-        ip = request.headers.getlist("X-Forwarded-For")[0]
-    else:
-        ip = request.remote_addr
-
+    ip = get_real_ip()
     user_agent = request.headers.get("User-Agent", "Unknown")
     geo = get_geolocation(ip)
 
@@ -49,20 +49,7 @@ def log():
         "geo": geo
     }
 
-    # Print to Render logs
     print(json.dumps(log_entry, indent=2))
-
     return {"status": "logged"}
-
-
-
-
-@app.route("/view-logs", methods=["GET"])
-def view_logs():
-    try:
-        with open("log.txt", "r") as f:
-            return "<pre>" + f.read() + "</pre>"
-    except FileNotFoundError:
-        return "No logs yet."
 
 
